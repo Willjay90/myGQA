@@ -6,6 +6,10 @@ from collections import Counter
 from dataset_utils.text_processing import tokenize
 
 parser = argparse.ArgumentParser()
+parser.add_argument("--type",
+                    choices=['question', 'answer'],
+                    default="../data/",
+                    help="output directory, default is current directory")
 parser.add_argument("--input_files",
                     nargs='+',
                     required=True,
@@ -13,8 +17,9 @@ parser.add_argument("--input_files",
                          if more than 1, split by space")
 parser.add_argument("--out_dir",
                     type=str,
-                    default="./",
+                    default="data/",
                     help="output directory, default is current directory")
+
 parser.add_argument("--min_freq",
                     type=int,
                     default=0,
@@ -23,13 +28,14 @@ parser.add_argument("--min_freq",
 
 args = parser.parse_args()
 
+file_type = args.type
 input_files = args.input_files
 out_dir = args.out_dir
 min_freq = args.min_freq
 
 os.makedirs(out_dir, exist_ok=True)
 
-vocab_file_name = 'gqa_vocanulary.txt'
+vocab_file_name = 'gqa_%s_vocab.txt' % file_type
 
 word_count = Counter()
 questions = []
@@ -39,7 +45,7 @@ for idx, input_file in enumerate(input_files):
         data = json.load(f)
 
     for key in data:
-        questions.append(data[key]["question"]) 
+        questions.append(data[key][file_type]) 
 
 question_length = [None]*len(questions)
 
@@ -53,6 +59,7 @@ vocabulary.sort()
 vocabulary = ['<unk>'] + vocabulary
 
 vocab_file = os.path.join(out_dir, vocab_file_name)
+
 with open(vocab_file, 'w') as f:
     f.writelines([w+'\n' for w in vocabulary])
 

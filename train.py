@@ -7,6 +7,10 @@ from dataset_utils.dataset_utils import prepare_train_data_set, \
     prepare_eval_data_set, prepare_test_data_set
 from train_model.Engineer import one_stage_train
 from train_model.model_factory import make_model
+import numpy as np
+from dataset_utils import text_processing
+import torch.nn.functional as F
+from config.config import cfg
 
 
 class NoamOpt:
@@ -38,8 +42,6 @@ def get_std_opt(model):
     return NoamOpt(model.src_embed[0].d_model, 2, 4000, torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
 
 
-
-
 class LabelSmoothing(nn.Module):
     def __init__(self, size, padding_idx, smoothing=0.0):
         super(LabelSmoothing, self).__init__()
@@ -48,6 +50,7 @@ class LabelSmoothing(nn.Module):
         self.confidence = 1.0 - smoothing
         self.size = size
         self.true_dist = None
+
     def forward(self, x, target):
         assert x.size(1) == self.size
         true_dist = x.data.clone()
@@ -126,23 +129,65 @@ class MultiGPULossCompute:
             self.opt.optimizer.zero_grad()
         return total * normalize
 
-class Batch:
-    def __init__(self, src, trg=None, pad=0):
-        self.src = src
-        self.src_mask = (src != pad).unsqueeze(-2)
-        if trg is not None:
-            self.trg = trg[:, :-1]
-            self.trg_y = trg[:, 1:]
-            self.trg_mask = self.make_std_mask(self.trg, pad)
-            self.ntokens = (self.trg_y != pad).data.sum()
-    
-    @staticmethod
-    def make_std_mask(tgt, pad):
-        "Create a mask to hide padding and future words."
-        tgt_mask = (tgt != pad).unsqueeze(-2)
-        tgt_mask = tgt_mask & Variable(subsequent_mask(tgt.size(-1)).type_as(tgt_mask.data))
-        return tgt_mask
-    
+def nopeak_mask(size):
+    np_mask = np.triu(np.ones((1, size, size)), k=1).astype('uint8')
+    np_mask =  Variable(torch.from_numpy(np_mask) == 0)
+    # if torch.cuda.is_available():
+    #   np_mask = np_mask.cuda()
+    return np_mask
+
+def create_mask(src, trg, pad=0):
+    src_mask = (src != pad).unsqueeze(-2)
+
+    if trg is not None:
+        trg_mask = (trg != pad).unsqueeze(-2)
+        size = trg.size(1) # get seq_len for matrix
+        np_mask = nopeak_mask(size)
+        # if torch.cuda.is_available():
+        #     np_mask.cuda()
+        trg_mask = trg_mask & np_mask
+        
+        trg_y = trg[:, 1:]
+        ntokens = (trg_y != pad).data.sum()
+
+    else:
+        trg_mask = None
+    return src_mask, trg_mask,ntokens
+
+def cal_performance(pred, gold, smoothing=False):
+    "Apply label smoothing if needed"
+    print("pred: ", pred.size(), "gold: ", gold.size())
+    loss = cal_loss(pred, gold, smoothing)
+    pred = pred.max(1)[1]
+    gold = gold.contiguous().view(-1)
+    non_pad_mask = gold.ne(0)
+    n_correct = pred.eq(gold)
+    n_correct = n_correct.masked_select(non_pad_mask).sum().item()
+
+    return loss, n_correct
+
+def cal_loss(pred, gold, smoothing):
+    ''' Calculate cross entropy loss, apply label smoothing if needed. '''
+
+    # gold = gold.contiguous().view(-1)
+
+    if smoothing:
+        eps = 0.1
+        n_class = pred.size(1)
+
+        one_hot = torch.zeros_like(pred).scatter(1, gold.view(-1, 1), 1)
+        one_hot = one_hot * (1 - eps) + (1 - one_hot) * eps / (n_class - 1)
+        log_prb = F.log_softmax(pred, dim=1)
+
+        non_pad_mask = gold.ne(0)
+        loss = -(one_hot * log_prb).sum(dim=1)
+        loss = loss.masked_select(non_pad_mask).sum()  # average later
+    else:
+        print("pred", pred.size(), "gold", gold.size())
+        loss = F.cross_entropy(pred, gold, ignore_index=0, reduction='sum')
+
+    return loss
+
 
 def run_epoch(data_iter, model, loss_compute):
     start = time.time()
@@ -150,14 +195,25 @@ def run_epoch(data_iter, model, loss_compute):
     total_loss = 0
     tokens = 0
 
-    for i, batch in enumerate(data_iter):
-        # def forward(self, src, tgt, image_feat, src_mask, tgt_mask):
-       
-        out = model.forward(batch['src'], batch['trg'], batch['image_feat'], batch['src_mask'], batch['trg_mask'])
-        print(out)
-        # loss = loss_compute(out, batch['trg_y'], data_processed.ntokens)
+    for i, batch in enumerate(data_iter):        
+        src = batch['question_seq']
+        trg = batch['answer_seq']
+        img_feature = batch['image_feature']
 
-    #     total_loss += loss
+        # if torch.cuda.is_available():
+        #     src = src.cuda()
+        #     trg = trg.cuda()
+        #     img_feature = img_feature.cuda()
+
+        src_mask, trg_mask, ntokens = create_mask(src, trg)
+        
+        pred = model.forward(src, trg, img_feature, src_mask, trg_mask)
+
+        loss = loss_compute(pred, trg, ntokens)
+        print(loss)
+
+        # total_loss += loss
+        # print(total_loss)
     #     total_tokens += batch.ntokens
     #     tokens += batch.tokens
 
@@ -168,42 +224,36 @@ def run_epoch(data_iter, model, loss_compute):
     #         tokens = 0
     # return total_loss / total_tokens
 
-def data_gen(V, batch, nbatches):
-    "Generate random data for a src-tgt copy task."
-    for i in range(nbatches):
-        data = torch.from_numpy(np.random.randint(1, V, size=(batch, 10)))
-        data[:,0] = 1
-        src = Variable(data, requires_grad=False)
-        tgt = Variable(data, requires_grad=False)
-        yield Batch(src, tgt, 0)
-
 if __name__ == '__main__':
-    data_set_trn = prepare_train_data_set('data')
-    # data_set_val = prepare_train_data_set('data')
-    # data_set_test = prepare_train_data_set('data')
+
+    data_set_trn = prepare_train_data_set('data', **cfg)
+    # data_set_val = prepare_train_data_set('data', **cfg)
+    # data_set_test = prepare_train_data_set('data', **cfg)
 
     data_reader_trn = DataLoader(dataset=data_set_trn,
-                                 batch_size=512,
+                                 batch_size=cfg.batch_size,
                                  shuffle=True,
-                                 num_workers=6)
+                                 num_workers=cfg.num_workers)
     # data_reader_val = DataLoader(data_set_val,
     #                              shuffle=True,
     #                              batch_size=512,
     #                              num_workers=6)
 
-    voc_maxLen = 14
-    img_feature = 2048 * 7 * 7
-    model = make_model(voc_maxLen, voc_maxLen, img_feature)
+    vocab_dict = text_processing.VocabDict(cfg.vocab_question_file)
+    answer_dict = text_processing.VocabDict(cfg.vocab_answer_file)
+
+    model = make_model(vocab_dict.num_vocab, answer_dict.num_vocab, cfg.image_feature_dim)
 
     # GPUs
     devices = [0, 1, 2, 3]
 
-    criterion = LabelSmoothing(size=voc_maxLen, padding_idx=0, smoothing=0.0)
-    
+    criterion = LabelSmoothing(size=cfg.max_len, padding_idx=0, smoothing=0.0)
+
     if torch.cuda.device_count() > 1:
         model = model.module
     model_opt = NoamOpt(model.src_embed[0].d_model, 1, 400, torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9)) 
-    
+
     for i in range(1):
         model.train()
-        run_epoch(data_reader_trn, model, MultiGPULossCompute(model.generator, criterion, devices=devices, opt=model_opt))
+        # run_epoch(data_reader_trn, model, MultiGPULossCompute(model.generator, criterion, devices=devices, opt=model_opt))
+        run_epoch(data_reader_trn, model, SimpleLossCompute(model.generator, criterion, opt=model_opt))
