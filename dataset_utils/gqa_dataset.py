@@ -18,7 +18,9 @@ class GQADataSet(Dataset):
         self.test_mode = data_params['test_mode']
 
         self.data_params = data_params
-        self.max_len = data_params['max_len']
+        self.question_len = data_params['question_len']
+        self.answer_len = data_params['answer_len']
+
 
         self.input_file = input_file
         self.root_dir = root_dir
@@ -31,7 +33,7 @@ class GQADataSet(Dataset):
 
         with open(input_file, 'r') as f:
             self.questions = json.load(f)
-        self.quesiotn_key_list = list(self.questions.keys())
+        self.question_key_list = list(self.questions.keys())
 
         with open(self.obj_info_dir, 'r') as f:
             self.obj_info = json.load(f)
@@ -41,58 +43,65 @@ class GQADataSet(Dataset):
 
     def __len__(self):
         if self.test_mode:
-            return 10
+            return 500
         return len(self.questions)
 
     def _get_image_features_(self, idx):
-        obj_idx = str(self.obj_info[self.questions[self.quesiotn_key_list[idx]]['imageId']]["file"])
+        obj_idx = str(self.obj_info[self.questions[self.question_key_list[idx]]['imageId']]["file"])
         obj_dir = self.root_dir + "/allImages/objects/gqa_objects_" + obj_idx + ".h5"
         spatial_dir = self.root_dir + "/allImages/spatial/gqa_spatial_" + obj_idx + ".h5"
 
         obj_file = h5py.File(obj_dir, 'r')
         spatial_file = h5py.File(spatial_dir, 'r')
 
-        obj_id = self.obj_info[self.questions[self.quesiotn_key_list[idx]]['imageId']]["idx"]
+        obj_id = self.obj_info[self.questions[self.question_key_list[idx]]['imageId']]["idx"]
   
         spatial_feature = spatial_file['features'][obj_id]  # 2048 * 7 * 7
         obj_feature = obj_file['features'][obj_id]          # 100 * 2048
         obj_bboxes = obj_file['bboxes'][obj_id]             # 100 * 4
         return spatial_feature, obj_feature, obj_bboxes
- 
+    
+    def one_hot(self, target):
+        dim = self.answer_dict.num_vocab
+        return np.eye(dim, dtype=np.float32)[target]
+
+
     def __getitem__(self, idx):
         sample = dict()
 
         # preprocess question token
-        question = self.questions[self.quesiotn_key_list[idx]]['question'].lower()
+        question = self.questions[self.question_key_list[idx]]['question'].lower()
         question_tokens = text_processing.tokenize(question)
 
-        input_seq = np.zeros((self.max_len), np.long)
+        input_seq = np.zeros((self.question_len), np.long)
         question_inds = ([self.vocab_dict.word2idx(w) for w in question_tokens])
         seq_length = len(question_inds)
-        read_len = min(seq_length, self.max_len)
+        read_len = min(seq_length, self.question_len)
         input_seq[:read_len] = question_inds[:read_len]
 
+        sample['question_id'] = self.question_key_list[idx]
         sample['question'] = question
         sample['question_seq'] = input_seq
 
         # preprocess answer token
-        has_answer = 'answer' in self.questions[self.quesiotn_key_list[idx]]
-        sample['has_answer'] = has_answer
-
+        has_answer = True if 'answer' in self.questions[self.question_key_list[idx]] else False
         if has_answer:
-            answer = self.questions[self.quesiotn_key_list[idx]]['answer'].lower()
+            answer = self.questions[self.question_key_list[idx]]['answer'].lower()
             answer_tokens = text_processing.tokenize(answer)
-            answer_seq = np.zeros((3), np.long) # data preprocessing result (answer's max len is 3)
+            answer_seq = np.zeros((self.answer_len), np.long) 
+
+            # if answer len > 1
             if len(answer_tokens) == 1:
                 ans_idx = [self.answer_dict.word2idx(answer)]
             else:
                 ans_idx = ([self.answer_dict.word2idx(ans) for ans in answer])
             seq_length = len(ans_idx)
-            read_len = min(seq_length, 3)
+            read_len = min(seq_length, self.answer_len)
             answer_seq[:read_len] = ans_idx[:read_len]
 
             sample['answer'] = answer
             sample['answer_seq'] = answer_seq
+            sample['answer_gold'] = self.one_hot(answer_seq)
 
         # image features
         spatial_feature, obj_feature, obj_bboxes = self._get_image_features_(idx)

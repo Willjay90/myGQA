@@ -26,7 +26,9 @@ class EncoderDecoder(nn.Module):
         self.generator = generator
 
     def forward(self, src, tgt, image_feat, src_mask, tgt_mask):
-        return self.decode(self.encode(src, image_feat, src_mask), image_feat, src_mask, tgt, tgt_mask)
+        res = self.generator(self.decode(self.encode(src, image_feat, src_mask), image_feat, src_mask, tgt, tgt_mask))
+        return res
+        # return self.decode(self.encode(src, image_feat, src_mask), image_feat, src_mask, tgt, tgt_mask)
     def encode(self, src, image_feat, src_mask):
         return self.encoder(self.src_embed(src), image_feat, src_mask)
     def decode(self, memory, image_feat, src_mask, tgt, tgt_mask):
@@ -53,7 +55,9 @@ class LayerNorm(nn.Module):
         self.a_2 = nn.Parameter(torch.ones(features))
         self.b_2 = nn.Parameter(torch.zeros(features))
         self.eps = eps
+
     def forward(self, x):
+        x = x.float()
         mean = x.mean(-1, keepdim=True)
         std = x.std(-1, keepdim=True)
         return self.a_2 * (x-mean) / (std + self.eps) + self.b_2
@@ -95,9 +99,8 @@ class EncoderLayer(nn.Module):
 
     def forward(self, x, image_feat, mask):
         x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, image_feat, mask))    # multi-head attn
-
         x = self.sublayer[1](x, lambda x: self.img_attn(x, image_feat))     # image_attn
-
+        tmp = self.sublayer[1](x, self.feed_forward)
         return self.sublayer[2](x, self.feed_forward)                       # feed-forward
     
 class ImageAttention(nn.Module):
@@ -156,6 +159,7 @@ def subsequent_mask(size):
 
 def attention(query, key, value, image_feat, mask=None, dropout=None):
     'Scale Dot-Product as described in Transformer'
+    '**image_feat** as input for further engineering.'
     d_k = query.size(-1)
     scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(d_k) # batch * h * max_len * max_len 
 
@@ -220,7 +224,7 @@ class Embeddings(nn.Module):
 
 ## Positional Encoding
 class PositionalEncoding(nn.Module):
-    def __init__(self, d_model, dropout, max_len=5000):
+    def __init__(self, d_model, dropout, max_len=30):
         super(PositionalEncoding, self).__init__()
         self.dropout = nn.Dropout(dropout)
 
@@ -238,5 +242,6 @@ class PositionalEncoding(nn.Module):
 
     def forward(self, x):
         x = x + Variable(self.pe[:, :x.size(1)], requires_grad=False)
+        x = torch.where(torch.isnan(x), torch.zeros_like(x), x) # get rid of nan
         return self.dropout(x)
 

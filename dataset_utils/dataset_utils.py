@@ -2,8 +2,6 @@ from dataset_utils.gqa_dataset import GQADataSet
 
 def prepare_data_set(data_dir, root_dir, **data_param):
     gqa_dataset = GQADataSet(input_file=data_dir, root_dir=root_dir, **data_param)
-    vocab_question_file = "vocabulary_gqa.txt"
-    vocab_answer_file = "answers_gqa.txt"
 
     return gqa_dataset
 

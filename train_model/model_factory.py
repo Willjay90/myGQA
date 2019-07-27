@@ -3,7 +3,7 @@ import torch
 import copy
 from train_model.transformer import *
 
-def make_model(src_vocab, tgt_vocab, img_dim, N=6, d_model=512, d_ff=2048, h=8, dropout=0.1):
+def make_model(src_vocab, tgt_vocab, img_dim, N=4, d_model=256, d_ff=2048, h=8, dropout=0.1):
     c = copy.deepcopy
 
     attn = MultiHeadedAttention(h, d_model)
@@ -25,8 +25,8 @@ def make_model(src_vocab, tgt_vocab, img_dim, N=6, d_model=512, d_ff=2048, h=8, 
         if p.dim() > 1:
             nn.init.xavier_uniform(p)
 
-    # if torch.cuda.is_available():
-        # model = model.cuda()
+    if torch.cuda.is_available():
+        model = model.cuda()
 
     if torch.cuda.device_count() > 1:
         model = nn.DataParallel(model)
