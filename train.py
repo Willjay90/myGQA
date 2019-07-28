@@ -17,6 +17,7 @@ import os
 from config.config_utils import finalize_config, dump_config
 from train_model.Engineer import one_stage_train, compute_a_batch
 from train_model.helper import run_model, print_result
+from bisect import bisect
 
 def print_eval(prepare_data_fun, out_label):
     model_file = os.path.join(snapshot_dir, "best_model.pth")
@@ -29,7 +30,7 @@ def print_eval(prepare_data_fun, out_label):
 
     data_reader_test = DataLoader(dataset=data_set_test,
                                  batch_size=cfg.batch_size,
-                                 shuffle=True,
+                                 shuffle=False,
                                  num_workers=cfg.num_workers)
 
     vocab_dict = text_processing.VocabDict(cfg.vocab_question_file)
@@ -120,7 +121,7 @@ if __name__ == '__main__':
     optimizer = getattr(optim, cfg.optimizer.method)(params, **cfg.optimizer.par)
     scheduler = get_optim_scheduler(optimizer)
 
-    # optimizer = optim.Adamax(model.parameters(), lr=2.5e-4)
+    optimizer = optim.Adamax(model.parameters(), lr=2.5e-4)
     criterion = nn.BCEWithLogitsLoss()
 
     i_epoch = 0
@@ -133,7 +134,7 @@ if __name__ == '__main__':
                 optimizer, criterion, data_reader_eval=data_reader_val,
                 snapshot_dir=snapshot_dir, log_dir=boards_dir,
                 start_epoch=i_epoch, i_iter=i_iter,
-                scheduler=None, best_val_accuracy=best_accuracy)
+                scheduler=scheduler, best_val_accuracy=best_accuracy)
     print("END TRAINING...")
 
     print("BEGIN PREDICTING ON TEST/VAL set...")

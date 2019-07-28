@@ -38,16 +38,22 @@ def create_mask(src, trg, pad=0):
     return src_mask, trg_mask, ntokens
     
 def compute_score_with_logits(logits, labels):
+    # return logits.argmax(-1) == labels
+    score = torch.zeros(labels.size(0))
     pred = logits.argmax(-1)
+    # print("pred:", pred.shape, "labels", labels.shape)
     answer_dict = text_processing.VocabDict(cfg.vocab_answer_file)
     for idx, pred_idx in enumerate(pred):
-        pred_ans = answer_dict.idx2word(pred_idx)
-        # print("pred_ans", pred_ans)
-    return logits.argmax(-1) == labels
+        # print("pred", answer_dict.idx2word(pred_idx[0].item()), "ans", answer_dict.idx2word(labels[idx][0].item()))
+        if pred_idx[0].item() == labels[idx][0].item():
+            score[idx] = 1
+            
+    return score
 
 def compute_a_batch(batch, myModel, eval_mode, loss_criterion, add_graph=False, log_dir=None):
     obs_res = batch['answer_gold']  # batch_size x len_of_ans x len_ans_dic
-    ys = batch['answer_seq']        # it's easier to compute the acc [ batch_size x len_of_ans ]
+    # ys = batch['answer_seq']        # it's easier to compute the acc [ batch_size x len_of_ans ]
+    ys = batch['answer']        # it's easier to compute the acc [ batch_size x len_of_ans ]
 
     obs_res = Variable(obs_res.type(torch.FloatTensor))
 
@@ -160,15 +166,10 @@ def one_stage_run_model(batch, my_model, eval_mode, add_graph=False, log_dir=Non
 
     if eval_mode:
         my_model.eval()
-        # trg = np.ones((src.size(0), 1), np.long) * np.random.randint(0, answer_dict.num_vocab) # TEST
-        # trg = torch.from_numpy(trg)
     else:
         my_model.train()
-        # trg = batch['answer_seq']
-    trg = np.ones((src.size(0), 1), np.long) * np.random.randint(0, answer_dict.num_vocab) # TEST
-    trg = torch.from_numpy(trg)
-
-    # trg = batch['answer_seq']
+    
+    trg = batch['answer_seq']
 
     if torch.cuda.is_available():
         src = src.cuda()
@@ -205,7 +206,7 @@ def one_stage_train(myModel, data_reader_trn, my_optimizer,
             if i_iter > max_iter:
                 break
 
-        #     scheduler.step(i_iter)
+            scheduler.step(i_iter)
 
             my_optimizer.zero_grad()
             add_graph = False

@@ -43,7 +43,7 @@ class GQADataSet(Dataset):
 
     def __len__(self):
         if self.test_mode:
-            return 500
+            return 2000
         return len(self.questions)
 
     def _get_image_features_(self, idx):
@@ -83,25 +83,42 @@ class GQADataSet(Dataset):
         sample['question'] = question
         sample['question_seq'] = input_seq
 
+        answer_seq = np.zeros((self.answer_len), np.long) 
+
         # preprocess answer token
         has_answer = True if 'answer' in self.questions[self.question_key_list[idx]] else False
         if has_answer:
             answer = self.questions[self.question_key_list[idx]]['answer'].lower()
+            # sample['answer'] = answer
+            full_answer = self.questions[self.question_key_list[idx]]['fullAnswer'].lower()
+            
             answer_tokens = text_processing.tokenize(answer)
-            answer_seq = np.zeros((self.answer_len), np.long) 
-
+            # answer_seq = np.zeros((self.answer_len), np.long) 
             # if answer len > 1
             if len(answer_tokens) == 1:
-                ans_idx = [self.answer_dict.word2idx(answer)]
+                ans_idx = [self.answer_dict.word2idx(answer)]    
             else:
                 ans_idx = ([self.answer_dict.word2idx(ans) for ans in answer])
-            seq_length = len(ans_idx)
-            read_len = min(seq_length, self.answer_len)
-            answer_seq[:read_len] = ans_idx[:read_len]
+            full_ans_idx = ([self.answer_dict.word2idx(ans) for ans in full_answer])
 
-            sample['answer'] = answer
-            sample['answer_seq'] = answer_seq
-            sample['answer_gold'] = self.one_hot(answer_seq)
+            seq_length = len(full_ans_idx)
+            read_len = min(seq_length, self.answer_len)
+            answer_seq[:read_len] = full_ans_idx[:read_len]
+            # answer_seq[0] = ans_idx[0]
+            # answer_seq[1] = 0
+            # answer_seq[2:read_len] = full_ans_idx[:read_len-2]
+
+            gold_seq = np.zeros((self.answer_len), np.long)
+            gold_seq[:len(ans_idx)] = ans_idx[: len(ans_idx)]
+            sample['answer'] = gold_seq
+            sample['answer_gold'] = self.one_hot(gold_seq)
+
+        sample['answer_seq'] = answer_seq
+
+        # make 1/10 data without answer !!!! (test set does not have answer => make trg less important)
+        if idx % 3 == 0:
+            sample['answer_seq'] = np.zeros((self.answer_len), np.long) 
+
 
         # image features
         spatial_feature, obj_feature, obj_bboxes = self._get_image_features_(idx)
