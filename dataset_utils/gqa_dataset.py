@@ -43,7 +43,7 @@ class GQADataSet(Dataset):
 
     def __len__(self):
         if self.test_mode:
-            return 2000
+            return 200
         return len(self.questions)
 
     def _get_image_features_(self, idx):
@@ -115,7 +115,7 @@ class GQADataSet(Dataset):
 
         sample['answer_seq'] = answer_seq
 
-        # make 1/10 data without answer !!!! (test set does not have answer => make trg less important)
+        # make 1/3 data without answer !!!! (test set does not have answer => make trg less important)
         if idx % 3 == 0:
             sample['answer_seq'] = np.zeros((self.answer_len), np.long) 
 
