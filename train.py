@@ -18,6 +18,7 @@ from config.config_utils import finalize_config, dump_config
 from train_model.Engineer import one_stage_train, compute_a_batch
 from train_model.helper import run_model, print_result
 from bisect import bisect
+import glob
 
 def print_eval(prepare_data_fun, out_label):
     model_file = os.path.join(snapshot_dir, "best_model.pth")
@@ -37,7 +38,7 @@ def print_eval(prepare_data_fun, out_label):
     ans_dic = text_processing.VocabDict(cfg.vocab_answer_file)
 
 
-    my_model = make_model(vocab_dict.num_vocab, ans_dic.num_vocab, cfg.image_feature_dim)
+    my_model = make_model(vocab_dict.num_vocab, answer_dict.num_vocab, cfg.object_feature_dim, cfg.image_feature_dim)
     model.load_state_dict(torch.load(model_file)['state_dict'])
     model.eval()
 
@@ -112,7 +113,7 @@ if __name__ == '__main__':
     vocab_dict = text_processing.VocabDict(cfg.vocab_question_file)
     answer_dict = text_processing.VocabDict(cfg.vocab_answer_file)
 
-    my_model = make_model(vocab_dict.num_vocab, answer_dict.num_vocab, cfg.image_feature_dim)
+    my_model = make_model(vocab_dict.num_vocab, answer_dict.num_vocab, cfg.object_feature_dim, cfg.image_feature_dim)
 
     if hasattr(my_model, 'module'):
         model = my_model.module
@@ -120,9 +121,23 @@ if __name__ == '__main__':
     params = model.parameters()
     optimizer = getattr(optim, cfg.optimizer.method)(params, **cfg.optimizer.par)
     scheduler = get_optim_scheduler(optimizer)
-
-    optimizer = optim.Adamax(model.parameters(), lr=2.5e-4)
     criterion = nn.BCEWithLogitsLoss()
+
+    # load previous model
+    if not cfg.force_restart:
+        md_pths = os.path.join(snapshot_dir, "model_*.pth")
+        files = glob.glob(md_pths)
+        if len(files) > 0:
+            latest_file = max(files, key=os.path.getctime)
+            info = torch.load(latest_file)
+            i_epoch = info['epoch']
+            i_iter = info['iter']
+            sd = info['state_dict']
+            op_sd = info['optimizer']
+            my_model.load_state_dict(sd)
+            my_optim.load_state_dict(op_sd)
+            if 'best_val_accuracy' in info:
+                best_accuracy = info['best_val_accuracy']
 
     i_epoch = 0
     i_iter = 0
@@ -143,10 +158,3 @@ if __name__ == '__main__':
         print_eval(prepare_test_data_set, "test")
     if cfg.run == 'train+val':
         print_eval(prepare_eval_data_set, "val")
-
-
-    # dataiter = iter(data_reader_trn)
-    # dataiter.next()
-    
-    # for epoch in range(1):
-    #     run_epoch(data_reader_trn, model, optimizer, criterion)

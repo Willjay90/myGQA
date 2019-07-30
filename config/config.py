@@ -6,19 +6,21 @@ __C = AttrDict()
 cfg = __C
 
 __C.run = "train+predict"
+__C.force_restart = False
 __C.test_mode = False
 # __C.test_mode = True
 
 
 __C.num_workers = 6
-__C.batch_size = 256
+__C.batch_size = 128
 __C.question_len = 30
 __C.image_feature_dim = 2048 * 7 * 7 
+__C.object_feature_dim = 30 * (2048 + 4) # use only 30 objects' feature to prevent OOM
 __C.answer_len = 30
 
 # output
 __C.out_dir = ''
-__C.seed = 1400
+__C.seed = 1600
 
 
 __C.vocab_question_file = "data/gqa_question_vocab.txt"
@@ -36,11 +38,19 @@ __C.training_parameters.clip_norm_mode = 'all'
 __C.training_parameters.max_grad_l2_norm = 0.25
 __C.training_parameters.wu_factor = 0.2
 __C.training_parameters.wu_iters = 1000
-__C.training_parameters.lr_steps = [5000, 7000, 9000, 11000]
+__C.training_parameters.lr_steps = [3000, 5000, 7000, 9000, 11000]
 __C.training_parameters.lr_ratio = 0.1
+
+
+# --------------------------------------------------------------------------- #
+# loss options:
+# --------------------------------------------------------------------------- #
+__C.loss = 'logitBCE'
 
 
 # --------------------------------------------------------------------------- #
 # optimizer options:
 # --------------------------------------------------------------------------- #
 __C.optimizer = ModelParPair('Adamax')
+# __C.optimizer = ModelParPair('Adam')
+

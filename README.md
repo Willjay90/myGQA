@@ -27,7 +27,7 @@ python train.py
 ## Generate Test Result
 
 ```
-python test.py --config results/1300/config.yaml --out_prefix gqa_transformer --model_path results/1300/best_model.pth
+python test.py --config results/1300/config.yaml --seed 1500
 ```
 
 ## Acknowledgments

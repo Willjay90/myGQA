@@ -43,7 +43,7 @@ class GQADataSet(Dataset):
 
     def __len__(self):
         if self.test_mode:
-            return 200
+            return 2000
         return len(self.questions)
 
     def _get_image_features_(self, idx):
@@ -93,7 +93,7 @@ class GQADataSet(Dataset):
             full_answer = self.questions[self.question_key_list[idx]]['fullAnswer'].lower()
             
             answer_tokens = text_processing.tokenize(answer)
-            # answer_seq = np.zeros((self.answer_len), np.long) 
+
             # if answer len > 1
             if len(answer_tokens) == 1:
                 ans_idx = [self.answer_dict.word2idx(answer)]    
@@ -104,12 +104,10 @@ class GQADataSet(Dataset):
             seq_length = len(full_ans_idx)
             read_len = min(seq_length, self.answer_len)
             answer_seq[:read_len] = full_ans_idx[:read_len]
-            # answer_seq[0] = ans_idx[0]
-            # answer_seq[1] = 0
-            # answer_seq[2:read_len] = full_ans_idx[:read_len-2]
 
             gold_seq = np.zeros((self.answer_len), np.long)
             gold_seq[:len(ans_idx)] = ans_idx[: len(ans_idx)]
+
             sample['answer'] = gold_seq
             sample['answer_gold'] = self.one_hot(gold_seq)
 
@@ -122,11 +120,11 @@ class GQADataSet(Dataset):
 
         # image features
         spatial_feature, obj_feature, obj_bboxes = self._get_image_features_(idx)
-
         sample['image_feature'] = spatial_feature
-        sample['obj_feature'] = obj_feature
-        sample['obj_bboxes'] = obj_bboxes
 
+        object_features = np.concatenate((obj_feature, obj_bboxes), 1) # concate object feature with bboxes
+        object_features = object_features[:30, :] # get 30 object features (memory constraint)
+        sample['obj_feature'] = object_features
 
         if self.transform:
             sample = self.transform(sample)

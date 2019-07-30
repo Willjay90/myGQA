@@ -160,26 +160,26 @@ def clip_gradients(myModel, i_iter, writer):
             raise NotImplementedError
 
 def one_stage_run_model(batch, my_model, eval_mode, add_graph=False, log_dir=None):
+    if eval_mode:
+        my_model.eval()
+    else:
+        my_model.train()
+
     src = batch['question_seq']
     img_feature = batch['image_feature']
     answer_dict = text_processing.VocabDict(cfg.vocab_answer_file)
-    trg = batch['answer_seq']
+    trg = batch['answer_seq'] if not eval_mode else torch.zeros(batch['answer_seq'].shape, dtype=torch.long)
+    obj_feature = batch['obj_feature']
 
-    if eval_mode:
-        my_model.eval()
-        trg = torch.zeros(trg.shape, dtype=torch.long)
-    else:
-        my_model.train()
-    
-    
     if torch.cuda.is_available():
         src = src.cuda()
         img_feature = img_feature.cuda()
         trg = trg.cuda()
+        obj_feature = obj_feature.cuda()
 
     src_mask, trg_mask, _ = create_mask(src, trg)
 
-    logit_res = my_model(src, trg, img_feature, src_mask, trg_mask)
+    logit_res = my_model(src, trg, obj_feature, img_feature, src_mask, trg_mask)
 
     return logit_res
 

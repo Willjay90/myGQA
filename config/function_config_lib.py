@@ -9,16 +9,40 @@
 from config.collections import AttrDict
 
 # --------------------------------------------------------------------------- #
-# Adamax optimizer
+# optimizer options:
 # --------------------------------------------------------------------------- #
+
 adamax_opt = AttrDict()
 adamax_opt.lr = 0.01
 adamax_opt.weight_decay = 0
 adamax_opt.eps = 0.00000001
 
+Adam_par = AttrDict()
+Adam_par.lr = 2.5e-4
+
+
+
+OPTIMIZER = {
+    'Adam': Adam_par,
+    'Adamax': adamax_opt
+}
+
+
+
+# --------------------------------------------------------------------------- #
+# loss options:
+# --------------------------------------------------------------------------- #
+
+LOSS = {
+    'logit': AttrDict(),
+    'softmax': AttrDict()
+}
+
+
 # SUMMARY of all model parameters
 MODEL_TYPE_PAR_DICT = {
     'Adamax': adamax_opt,
+    'Adam': Adam_par,
 }
 
 
