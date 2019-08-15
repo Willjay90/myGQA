@@ -3,10 +3,10 @@ import torch
 import copy
 from train_model.transformer import *
 
-def make_model(src_vocab, tgt_vocab, obj_dim, img_dim, N=4, d_model=512, d_ff=2048, h=8, dropout=0.1):
+def make_model(src_vocab, tgt_vocab, obj_dim, img_dim, N=4, d_model=256, d_ff=2048, h=8, dropout=0.1):
     c = copy.deepcopy
 
-    attn = MultiHeadedAttention(h, d_model)
+    attn = MultiHeadedAttention(h, d_model, obj_dim)
     obj_attn = ObjectAttention(obj_dim, d_model)
     img_attn = ImageAttention(img_dim, d_model)
     ff = PositionwiseFeedForward(d_model, d_ff, dropout)

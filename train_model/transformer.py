@@ -4,6 +4,10 @@ import math, copy, time
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
+import math
+
+def gelu(x):
+  return 0.5 * x * (1 + torch.tanh(math.sqrt(math.pi / 2) * (x + 0.044715 * x ** 3)))
 
 class EncoderDecoder(nn.Module):
     "standord encoder-decoder architecture."
@@ -85,14 +89,16 @@ class EncoderLayer(nn.Module):
         self.feed_forward = feed_forward
         self.img_attn = img_attn
         self.obj_attn = obj_attn
-        self.sublayer = clones(SubLayerConnection(size, dropout), 4) # 4 layers encoder
+        self.sublayer = clones(SubLayerConnection(size, dropout), 3) # 2 layers encoder
         self.size = size
 
     def forward(self, x, obj_feat, image_feat, mask):
-        x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, image_feat, mask))    # multi-head attn
-        x = self.sublayer[1](x, lambda x: self.obj_attn(x, obj_feat))       # obj_attn
-        x = self.sublayer[2](x, lambda x: self.img_attn(x, image_feat))     # image_attn
-        return self.sublayer[3](x, self.feed_forward)                       # feed-forward
+        x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, obj_feat, mask))    # multi-head attn
+        x = self.sublayer[1](x, lambda x: self.img_attn(x, image_feat))     # image_attn
+        return self.sublayer[2](x, self.feed_forward)                       # feed-forward
+        # x = self.sublayer[1](x, lambda x: self.obj_attn(x, obj_feat))       # obj_attn
+        # x = self.sublayer[2](x, lambda x: self.img_attn(x, image_feat))     # image_attn
+        # return self.sublayer[3](x, self.feed_forward)                       # feed-forward
     
 class ImageAttention(nn.Module):
     def __init__(self, img_dim, size, dropout=0.1):
@@ -108,7 +114,7 @@ class ImageAttention(nn.Module):
         img = img_feature.view(batch_size, -1)
         
         x = self.fc_layer(img)
-        x = F.relu(x)
+        # x = gelu(x)
         x = torch.unsqueeze(x, 1).expand_as(memory)
 
         # project_attention
@@ -133,7 +139,7 @@ class ObjectAttention(nn.Module):
         obj = obj_feature.view(batch_size, -1)
         
         x = self.fc_layer(obj)
-        x = F.relu(x)
+        x = gelu(x)
         x = torch.unsqueeze(x, 1).expand_as(memory)
 
         # project_attention
@@ -165,15 +171,15 @@ class DecoderLayer(nn.Module):
         self.obj_attn = obj_attn
         self.img_attn = img_attn
         self.feed_forward = feed_forward
-        self.sublayer = clones(SubLayerConnection(size, dropout), 5) # 5 layers decoder
+        self.sublayer = clones(SubLayerConnection(size, dropout), 4) # 4 layers decoder
     
     def forward(self, x, memory, obj_feat, image_feat, src_mask, tgt_mask):
         m = memory
-        x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, image_feat, tgt_mask))
-        x = self.sublayer[1](x, lambda x: self.src_attn(x, m, m, src_mask))
-        x = self.sublayer[2](x, lambda x: self.obj_attn(x, obj_feat))       # obj_attn
-        x = self.sublayer[3](x, lambda x: self.img_attn(x, image_feat))     # image_attn
-        return self.sublayer[4](x, self.feed_forward)
+        x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, obj_feat, tgt_mask))
+        # x = self.sublayer[1](x, lambda x: self.obj_attn(x, obj_feat))       # obj_attn
+        x = self.sublayer[1](x, lambda x: self.img_attn(x, image_feat))     # image_attn
+        x = self.sublayer[2](x, lambda x: self.src_attn(x, m, m, obj_feat, src_mask))
+        return self.sublayer[3](x, self.feed_forward)
 
 def subsequent_mask(size):
     "Mask out subsequent positions."
@@ -197,7 +203,7 @@ def attention(query, key, value, image_feat, mask=None, dropout=None):
     return torch.matmul(p_attn, value), p_attn
 
 class MultiHeadedAttention(nn.Module):
-    def __init__(self, h, d_model, dropout=0.1):
+    def __init__(self, h, d_model, img_dim, dropout=0.1):
         "Take in model size and number of heads."
         super(MultiHeadedAttention, self).__init__()
         assert d_model % h == 0
@@ -206,6 +212,9 @@ class MultiHeadedAttention(nn.Module):
         self.linears = clones(nn.Linear(d_model, d_model), 4)
         self.attn = None
         self.dropout = nn.Dropout(dropout)
+
+        self.fc_layer = nn.Linear(img_dim, d_model // h)
+        self.lc = nn.Linear(d_model // h, 1)
 
     def forward(self, query, key, value, image_feat, mask=None):
         if mask is not None:
@@ -218,6 +227,20 @@ class MultiHeadedAttention(nn.Module):
 
         # 2) Apply attention on all the projected vectors in batch
         x, self.attn = attention(query, key, value, image_feat, mask=mask, dropout=self.dropout) # nbatch x h x len x d_k
+
+        # Attend to image feature
+        img = image_feat.view(nbatches, -1)
+        x_ = self.fc_layer(img)
+        # x_ = gelu(x_) # non-linear
+        x_ = torch.unsqueeze(x_, 1)
+        x_ = x_.repeat(1, self.h, 1)
+        x_ = torch.unsqueeze(x_, 2).expand_as(x)
+
+        joint_feature = x_ * x
+        joint_feature = self.dropout(joint_feature)
+        raw_attention = self.lc(joint_feature)
+        x = F.softmax(raw_attention, dim=-1).expand_as(x)
+
 
         # 3) "Concat" using a view and apply a final linear
         x = x.transpose(1, 2).contiguous().view(nbatches, -1, self.h * self.d_k)
@@ -248,14 +271,14 @@ class Embeddings(nn.Module):
 
 ## Positional Encoding
 class PositionalEncoding(nn.Module):
-    def __init__(self, d_model, dropout, max_len=30):
+    def __init__(self, d_model, dropout, max_len=5000):
         super(PositionalEncoding, self).__init__()
         self.dropout = nn.Dropout(dropout)
 
         # Compute the positional encodings once in log space
         pe = torch.zeros(max_len, d_model)
-        position = torch.arange(0, max_len).float().unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float()) * -(math.log(10000.0) / d_model)
+        position = torch.arange(0., max_len).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0., d_model, 2) * -(math.log(10000.0) / d_model))
 
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
@@ -266,6 +289,5 @@ class PositionalEncoding(nn.Module):
 
     def forward(self, x):
         x = x + Variable(self.pe[:, :x.size(1)], requires_grad=False)
-        x = torch.where(torch.isnan(x), torch.zeros_like(x), x) # get rid of nan
         return self.dropout(x)
 

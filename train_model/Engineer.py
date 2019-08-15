@@ -167,7 +167,6 @@ def one_stage_run_model(batch, my_model, eval_mode, add_graph=False, log_dir=Non
 
     src = batch['question_seq']
     img_feature = batch['image_feature']
-    answer_dict = text_processing.VocabDict(cfg.vocab_answer_file)
     trg = batch['answer_seq'] if not eval_mode else torch.zeros(batch['answer_seq'].shape, dtype=torch.long)
     obj_feature = batch['obj_feature']
 

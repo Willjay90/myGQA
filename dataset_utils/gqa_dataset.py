@@ -43,7 +43,7 @@ class GQADataSet(Dataset):
 
     def __len__(self):
         if self.test_mode:
-            return 2000
+            return 1
         return len(self.questions)
 
     def _get_image_features_(self, idx):
@@ -89,7 +89,6 @@ class GQADataSet(Dataset):
         has_answer = True if 'answer' in self.questions[self.question_key_list[idx]] else False
         if has_answer:
             answer = self.questions[self.question_key_list[idx]]['answer'].lower()
-            # sample['answer'] = answer
             full_answer = self.questions[self.question_key_list[idx]]['fullAnswer'].lower()
             
             answer_tokens = text_processing.tokenize(answer)
@@ -110,20 +109,18 @@ class GQADataSet(Dataset):
 
             sample['answer'] = gold_seq
             sample['answer_gold'] = self.one_hot(gold_seq)
-
         sample['answer_seq'] = answer_seq
 
         # make 1/3 data without answer !!!! (test set does not have answer => make trg less important)
         if idx % 3 == 0:
             sample['answer_seq'] = np.zeros((self.answer_len), np.long) 
 
-
         # image features
         spatial_feature, obj_feature, obj_bboxes = self._get_image_features_(idx)
         sample['image_feature'] = spatial_feature
 
         object_features = np.concatenate((obj_feature, obj_bboxes), 1) # concate object feature with bboxes
-        object_features = object_features[:30, :] # get 30 object features (memory constraint)
+        object_features = object_features[:10, :] # get 10 object features (memory constraint)
         sample['obj_feature'] = object_features
 
         if self.transform:
